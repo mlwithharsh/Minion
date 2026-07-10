@@ -1,0 +1,78 @@
+# config/smoke_test.yaml
+# Tiny smoke-test config — verifies the pipeline works end-to-end
+# in under 60 seconds on any CUDA GPU (or a few minutes on CPU).
+#
+# Uses Shakespeare memmap data (already in data/shakespeare_char/).
+# Run FIRST before committing to a real training run:
+#
+#   # 1. Prepare Shakespeare data (tokenize it with a tiny vocab):
+#   python tokenizer_train.py --mode train \
+#     --corpus_path data/shakespeare_char/input.txt \
+#     --vocab_size 512 --algorithm bpe \
+#     --tokenizer_dir tokenizer_smoke
+#
+#   python tokenizer_train.py --mode prepare \
+#     --tokenizer_path tokenizer_smoke \
+#     --corpus_path data/shakespeare_char/input.txt \
+#     --data_dir data/smoke_prepared
+#
+#   # 2. Run the smoke test (should finish 10 steps in < 60s):
+#   python train.py config/smoke_test.yaml
+
+mode: pretrain
+
+# ---- I/O ----
+# Use local out_dir only — no Drive needed for smoke test
+ckpt_dir:     out-smoke
+out_dir:      out-smoke
+eval_interval: 5
+log_interval:  1
+eval_iters:    2
+always_save_checkpoint: false
+keep_best_checkpoint:   false
+
+# ---- W&B ----
+wandb_log: false
+
+# ---- Data (memmap — pre-tokenized Shakespeare char-level) ----
+# Uses the output of: python data/shakespeare_char/prepare.py
+# vocab_size=65 (char-level ASCII — nanoGPT's prepare.py uses this)
+data_mode: memmap
+data_dir:  data/shakespeare_char
+
+# ---- Tokenizer ----
+# Memmap mode does NOT need a tokenizer (data is already tokenized).
+# Set to empty so train.py skips tokenizer loading entirely.
+tokenizer_path: ~
+
+# ---- Model (tiny — 2 layers, 2 heads, 64 embed → ~200K params) ----
+vocab_size:  65     # Char-level Shakespeare (65 unique ASCII chars)
+block_size:  128
+n_layer:     2
+n_head:      2
+n_embd:      64
+n_kv_heads:  1       # MQA: 1 KV head for 2 Q heads
+rope_theta:  10000.0
+dropout:     0.0
+
+# ---- Optimizer ----
+learning_rate:  1.0e-3
+max_iters:      10
+weight_decay:   0.1
+beta1:          0.9
+beta2:          0.95
+grad_clip:      1.0
+use_8bit_adam:  false    # Skip bnb for smoke test (no GPU requirement)
+use_lion:       false
+
+# ---- LR schedule ----
+decay_lr:       false    # No schedule for 10 steps
+
+# ---- Batch ----
+batch_size:                  4
+gradient_accumulation_steps: 1
+
+# ---- Efficiency ----
+gradient_checkpointing: false   # Not needed for tiny model
+compile:                false   # Faster startup without compilation
+dtype:                  auto

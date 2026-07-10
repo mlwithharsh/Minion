@@ -1,0 +1,38 @@
+# requirements-train.txt
+# Training-side dependencies (install on Google Colab).
+# Pinned to ranges that are known to work together as of 2025.
+# On Colab: !pip install -r requirements-train.txt
+
+# Core deep learning
+torch>=2.2.0,<3.0.0
+numpy>=1.24.0,<2.0.0
+
+# Quantization + 8-bit optimizers
+# Note: bitsandbytes wheels for CUDA 12.x are available on PyPI.
+# If Colab CUDA version differs, install the matching wheel manually.
+bitsandbytes>=0.43.0
+
+# Parameter-efficient fine-tuning (Mode B)
+peft>=0.10.0
+transformers>=4.40.0,<5.0.0
+accelerate>=0.28.0
+
+# Tokenizer training (Mode A custom tokenizer)
+tokenizers>=0.19.0
+
+# Streaming datasets
+datasets>=2.18.0
+
+# Config parsing
+PyYAML>=6.0
+
+# Optional: Weights & Biases logging (free tier, no credit card needed)
+wandb>=0.16.0
+
+# Optional: lm-evaluation-harness for eval hooks
+# lm-eval>=0.4.0    # Uncomment if you want eval harness integration
+
+# Utilities
+tqdm>=4.66.0
+scipy>=1.12.0      # Used by some HF internals
+sentencepiece>=0.2.0   # Required by some HF tokenizers

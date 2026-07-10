@@ -1,0 +1,99 @@
+# config/minion_qlora_gpt2xl_colab.yaml
+# Mode B — QLoRA fine-tuning of GPT-2 XL on a Colab T4 (16 GB VRAM).
+#
+# IMPORTANT: This is FINE-TUNING, not pretraining.
+# GPT-2 XL (1.558B params) is loaded in 4-bit NF4 quantization.
+# Only the LoRA adapter weights (~3–5M params) are trained.
+# The base model weights are FROZEN.
+#
+# Why Mode B instead of pretraining at 1.5B scale?
+#   Pretraining 1.5B params from scratch requires 100s of GPU-days to
+#   converge to a useful model.  That is not feasible on free-tier Colab.
+#   QLoRA lets you adapt the already-converged GPT-2 XL to your domain
+#   in a fraction of the compute budget — a few Colab sessions.
+#
+# Expected VRAM on T4:
+#   GPT-2 XL in 4-bit: ~800 MB
+#   LoRA adapters (fp16): ~20 MB
+#   Optimizer state (paged 8-bit): ~40 MB
+#   Activations (block_size=512): ~2–3 GB
+#   Total: ~4–5 GB — very comfortable on T4.
+#
+# Expected throughput on T4: ~40–60 tokens/sec
+
+mode: qlora_finetune
+
+# ---- I/O ----
+ckpt_dir: /content/drive/MyDrive/minion_qlora_ckpts
+out_dir:  out-qlora
+
+eval_interval: 200
+log_interval:  10
+eval_iters:    20
+always_save_checkpoint: true
+keep_best_checkpoint:   true
+
+# ---- W&B ----
+wandb_log:      false
+wandb_project:  minion-ai
+wandb_run_name: qlora-gpt2xl
+
+# ---- Data ----
+# Use streaming mode OR point to a pre-tokenized .bin file.
+# For Mode B the tokenizer is loaded from the base model automatically —
+# do NOT use a custom tokenizer here; the GPT-2 tokenizer is used.
+data_mode: streaming
+hf_dataset_name:   HuggingFaceFW/fineweb-edu
+hf_dataset_config: sample-10BT
+hf_train_split:    train
+hf_val_split:      train
+text_column:       text
+
+# tokenizer_path is IGNORED for qlora_finetune — base model tokenizer is used
+tokenizer_path: tokenizer
+
+# ---- Base model ----
+base_model_name: openai-community/gpt2-xl  # 1.558B params
+
+# ---- Quantization ----
+quantization:    nf4       # NF4 (NormalFloat4) gives better quality than fp4
+bnb_compute_dtype: float16 # Compute in fp16; T4 doesn't support bf16
+
+# ---- LoRA ----
+# rank: higher = more adapter capacity, more VRAM.  16 is a good default.
+# alpha: effective LR scale = alpha/rank.  Keep alpha = 2*rank for stability.
+# Tradeoff: larger rank improves fine-tune quality but uses more memory.
+lora_rank:    16
+lora_alpha:   32
+lora_dropout: 0.05
+# GPT-2 XL attention projection names:
+lora_target_modules: [c_attn, c_proj]
+
+# ---- Optimizer ----
+learning_rate:  2.0e-4   # Lower than pretrain; fine-tuning needs smaller LR
+max_iters:      5000
+weight_decay:   0.0
+beta1:          0.9
+beta2:          0.999
+grad_clip:      1.0
+
+# ---- LR schedule ----
+decay_lr:       true
+warmup_iters:   100
+lr_decay_iters: 5000
+min_lr:         2.0e-5
+
+# ---- Batch ----
+# Smaller batch_size due to base model overhead in GPU memory even at 4-bit
+batch_size:                  4
+gradient_accumulation_steps: 16   # effective batch = 4 * 16 = 64
+block_size:                  512  # Shorter context reduces activation memory
+
+# ---- Efficiency ----
+gradient_checkpointing: true
+compile:                false    # torch.compile + 4-bit quantized models can be unstable
+dtype:                  auto
+
+# ---- Colab session ----
+session_limit_hours:   11.5
+session_warn_fraction: 0.85

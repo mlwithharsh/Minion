@@ -1,0 +1,86 @@
+# config/minion_pretrain_colab.yaml
+# Mode A — Pretrain from scratch on a Colab T4 (16 GB VRAM).
+#
+# Expected performance on T4 (fp16):
+#   ~125M params, block_size=1024, batch 8 × accum 8
+#   ~80–120 tokens/sec throughput
+#   ~2–3 GB model VRAM + ~4 GB optimizer + ~4 GB activations ≈ ~10–12 GB total
+#   Time to reasonable coherence: 10k–20k steps (~3–5 Colab sessions)
+#
+# Scale up n_layer/n_embd if you have Colab Pro (longer sessions, A100).
+# For ~350M params: n_layer=24, n_head=16, n_embd=1024, n_kv_heads=4
+#                   Expect ~14–15 GB VRAM — tight on T4, comfortable on A100.
+
+mode: pretrain
+
+# ---- I/O ----
+# Checkpoint saved here every eval_interval steps.
+# This path is writable on Colab when Drive is mounted.
+# Change to a local path for non-Colab runs.
+ckpt_dir: /content/drive/MyDrive/minion_ckpts
+out_dir:  out
+
+eval_interval: 500       # Steps between evals (save checkpoint here too)
+log_interval:  10        # Steps between console prints
+eval_iters:    50        # Batches used to estimate eval loss (fewer = noisier but faster)
+always_save_checkpoint: true
+keep_best_checkpoint:   true
+
+# ---- W&B (optional, free tier) ----
+wandb_log:      false    # Set to true to enable; create free account at wandb.ai
+wandb_project:  minion-ai
+wandb_run_name: pretrain-125m
+
+# ---- Data ----
+data_mode: streaming              # No full download needed; starts training immediately
+hf_dataset_name:   HuggingFaceFW/fineweb-edu
+hf_dataset_config: sample-10BT   # 10B token sample; use sample-100BT for more data
+hf_train_split:    train
+hf_val_split:      train          # FineWeb-Edu has no separate val; use a held-out window
+text_column:       text
+
+# ---- Tokenizer ----
+# Run first: python tokenizer_train.py --mode train --hf_dataset HuggingFaceFW/fineweb-edu
+tokenizer_path: tokenizer
+
+# ---- Model ----
+vocab_size:  32768    # 32k: good balance of coverage vs. embedding VRAM on 3050
+block_size:  1024
+n_layer:     12
+n_head:      12
+n_embd:      768
+# GQA: n_kv_heads = n_head // 4 = 3 → 4× smaller KV cache vs full MHA.
+# Tradeoff: slight quality loss vs. n_kv_heads=12 (full MHA) at 125M scale.
+# Raise n_kv_heads towards n_head if quality is more important than memory.
+n_kv_heads:  3
+rope_theta:  10000.0  # Increase to 500000 for long-context extension without retraining
+dropout:     0.0      # No dropout for pretraining
+
+# ---- Optimizer ----
+learning_rate:  6.0e-4
+max_iters:      50000         # ~10 Colab sessions of ~5000 steps each
+weight_decay:   0.1
+beta1:          0.9
+beta2:          0.95
+grad_clip:      1.0
+use_8bit_adam:  true          # bitsandbytes 8-bit AdamW: ~50% optimizer state memory saving
+use_lion:       false         # Lion: lower memory but less stable; set LR ~3× smaller if enabled
+
+# ---- LR schedule ----
+decay_lr:       true
+warmup_iters:   1000
+lr_decay_iters: 50000
+min_lr:         6.0e-5        # ~= learning_rate / 10
+
+# ---- Batch ----
+batch_size:                  8    # Micro-batch size per step
+gradient_accumulation_steps: 8    # Effective batch = 8 * 8 * 1024 = 65536 tokens/step
+
+# ---- Efficiency ----
+gradient_checkpointing: true   # Recompute activations; saves ~4 GB at 12 layers
+compile:                true   # torch.compile: ~20% speedup; recompiles on each Colab session (~1 min)
+dtype:                  auto   # auto-detects bf16 (A100) or fp16 (T4)
+
+# ---- Colab session ----
+session_limit_hours:    11.5   # Free-tier Colab hard limit (varies; be conservative)
+session_warn_fraction:  0.85   # Warn at 85% = ~9.8h elapsed
