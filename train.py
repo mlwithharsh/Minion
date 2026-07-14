@@ -165,13 +165,17 @@ def load_config(config_path: Optional[str], overrides: dict) -> dict:
 def resolve_dtype(cfg: dict) -> tuple[str, torch.dtype, bool]:
     """Return (dtype_name, ptdtype, use_amp).
 
-    T4 does NOT support bf16 natively (it's a Volta/compute 7.5 GPU).
-    A100/H100 do.  We detect this at runtime rather than hardcoding.
+    T4 reports bf16 support in some Colab/PyTorch builds, but compute 7.5
+    does not run bf16 tensor cores natively.  For T4, fp16 is faster.
     """
     dtype_pref = cfg.get("dtype", "auto")
 
     if dtype_pref == "auto":
-        if torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        if (
+            torch.cuda.is_available()
+            and torch.cuda.is_bf16_supported()
+            and torch.cuda.get_device_capability()[0] >= 8
+        ):
             dtype_name = "bfloat16"
         elif torch.cuda.is_available():
             dtype_name = "float16"
@@ -179,6 +183,11 @@ def resolve_dtype(cfg: dict) -> tuple[str, torch.dtype, bool]:
             dtype_name = "float32"
     else:
         dtype_name = dtype_pref
+    dtype_name = {
+        "fp32": "float32",
+        "fp16": "float16",
+        "bf16": "bfloat16",
+    }.get(dtype_name, dtype_name)
 
     ptdtype = {
         "float32":  torch.float32,
@@ -738,9 +747,8 @@ def train(config_path: Optional[str] = None, **overrides) -> None:
             with ctx:
                 _, loss = model(X, Y)
                 loss = loss / cfg["gradient_accumulation_steps"]
-            # Prefetch next batch while GPU runs backward
-            X, Y = data_loader.get_batch("train")
             scaler.scale(loss).backward()
+            X, Y = data_loader.get_batch("train")
 
         # ---- Gradient clipping ----
         if cfg.get("grad_clip", 1.0) > 0.0:
